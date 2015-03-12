@@ -16,10 +16,11 @@ import (
 	"github.com/davecgh/go-xdr/xdr"
 	"github.com/gogo/protobuf/proto"
 	"github.com/philhofer/msgp/msgp"
+	"github.com/pquerna/ffjson/ffjson"
 	"github.com/ugorji/go/codec"
-	vmihailenco "github.com/vmihailenco/msgpack"
 	vitessbson "github.com/youtube/vitess/go/bson"
 	"gopkg.in/mgo.v2/bson"
+	vmihailenco "gopkg.in/vmihailenco/msgpack.v2"
 )
 
 var (
@@ -72,6 +73,21 @@ func generateGogoProto() []*GogoProtoBufA {
 			BirthDay: time.Now().Unix(),
 			Phone:    randString(10),
 			Siblings: rand.Int31n(5),
+			Spouse:   rand.Intn(2) == 1,
+			Money:    rand.Float64(),
+		})
+	}
+	return a
+}
+
+func generateFFJSON() []*FFJSONA {
+	a := make([]*FFJSONA, 0, 1000)
+	for i := 0; i < 1000; i++ {
+		a = append(a, &FFJSONA{
+			Name:     randString(16),
+			BirthDay: time.Now(),
+			Phone:    randString(10),
+			Siblings: rand.Intn(5),
 			Spouse:   rand.Intn(2) == 1,
 			Money:    rand.Float64(),
 		})
@@ -339,6 +355,43 @@ func BenchmarkJsonMarshal(b *testing.B) {
 
 func BenchmarkJsonUnmarshal(b *testing.B) {
 	benchUnmarshal(b, JsonSerializer(0))
+}
+
+func BenchmarkFFJsonMarshal(b *testing.B) {
+	b.StopTimer()
+	data := generateFFJSON()
+	b.ReportAllocs()
+	b.StartTimer()
+	for i := 0; i < b.N; i++ {
+		ffjson.Marshal(data[rand.Intn(len(data))])
+	}
+}
+
+func BenchmarkFFJsonUnmarshal(b *testing.B) {
+	b.StopTimer()
+	data := generateFFJSON()
+	ser := make([][]byte, len(data))
+	for i, d := range data {
+		ser[i], _ = ffjson.Marshal(d)
+	}
+	b.ReportAllocs()
+	b.StartTimer()
+	for i := 0; i < b.N; i++ {
+		n := rand.Intn(len(ser))
+		o := &FFJSONA{}
+		err := ffjson.Unmarshal(ser[n], o)
+		if err != nil {
+			b.Fatalf("goprotobuf failed to unmarshal: %s (%s)", err, ser[n])
+		}
+		// Validate unmarshalled data.
+		if validate != "" {
+			i := data[n]
+			correct := o.Name == i.Name && o.Phone == i.Phone && o.Siblings == i.Siblings && o.Spouse == i.Spouse && o.Money == i.Money && o.BirthDay == i.BirthDay //&& cmpTags(o.Tags, i.Tags) && cmpAliases(o.Aliases, i.Aliases)
+			if !correct {
+				b.Fatalf("unmarshaled object differed:\n%v\n%v", i, o)
+			}
+		}
+	}
 }
 
 func BenchmarkBsonMarshal(b *testing.B) {
